@@ -1,0 +1,30 @@
+#!/bin/sh
+
+usage() {
+    cat >&2 <<EOF
+Usage: $0 -l < files
+       $0 -r [-x path [-x path ...]] topdir
+
+Prefetch files in to the OS buffer cache.
+EOF
+    exit 2
+}
+
+if [ "x$1" = x-l ]; then
+    # Sort to encourage sequential access
+    sort | xargs -d '\n' cat > /dev/null
+elif [ "x$1" = x-r ]; then
+    shift
+    ARGS=""
+    while [ "x$1" = x-x ]; do
+        shift
+        ARGS="$ARGS -path $1 -prune -o"
+        shift
+    done
+    if [ $# != 1 ]; then
+        usage
+    fi
+    find $1 $ARGS -type f -print | xargs -d '\n' cat > /dev/null
+else
+    usage
+fi

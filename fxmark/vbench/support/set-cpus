@@ -1,0 +1,97 @@
+#!/usr/bin/python
+
+import sys, os
+
+def parseRange(r):
+    res = []
+    for piece in r.strip().split(","):
+        lr = piece.split("-")
+        if len(lr) == 1 and lr[0].isdigit():
+            res.append(int(lr[0]))
+        elif len(lr) == 2 and lr[0].isdigit() and lr[1].isdigit():
+            res.extend(range(int(lr[0]), int(lr[1]) + 1))
+        else:
+            raise ValueError("Invalid range syntax: %r" % r)
+    res.sort()
+    return res
+
+def printRange(vals):
+    vals = list(sorted(vals))
+    out = []
+    while vals:
+        lo = hi = vals.pop(0)
+        while vals and vals[0] == hi + 1:
+            hi = vals.pop(0)
+        if lo == hi:
+            out.append("%d" % lo)
+        else:
+            out.append("%d-%d" % (lo, hi))
+    return ",".join(out)
+
+possible = parseRange(file("/sys/devices/system/cpu/present").read())
+fixed = [n for n in possible
+         if not os.path.exists("/sys/devices/system/cpu/cpu%d/online" % n)]
+
+
+def setCPU(cpu, online):
+    path = "/sys/devices/system/cpu/cpu%d/online" % cpu
+    isOnline = bool(int(file(path).read()))
+    if isOnline != online:
+        with open(path, "w") as fd:
+            fd.write(str(int(online)))
+        # print >> file(path, "w"), int(online)
+
+def setCPUs(cpus):
+    bad = set(cpus) - set(possible)
+    if bad:
+        raise ValueError("CPU(s) %s do not exist" % printRange(bad))
+    bad = set(fixed) - set(cpus)
+    if bad:
+        raise ValueError("CPU(s) %s are not pluggable" % printRange(bad))
+
+    for cpu in possible:
+        if cpu not in fixed:
+            setCPU(cpu, cpu in cpus)
+    print >> sys.stderr, "CPUs %s are online" % printRange(cpus)
+
+def usage():
+    import textwrap
+    print >> sys.stderr, "Usage: %s {range | -i}" % sys.argv[0]
+    print >> sys.stderr
+    help = ("range is a range of CPUs to enable, such as 0-48 or 0,2,4."
+            "-i enters interactive mode, which prompts for CPU ranges and"
+            "enables all CPUs on EOF.")
+    print >> sys.stderr, textwrap.fill(help)
+    sys.exit(2)
+
+def interactive():
+    try:
+        while True:
+            r = sys.stdin.readline()
+            if not r:
+                break
+            try:
+                setCPUs(parseRange(r))
+            except ValueError as e:
+                print >> sys.stderr, e
+                sys.exit(1)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        setCPUs(possible)
+
+if __name__ == "__main__":
+    if len(sys.argv) == 1:
+        usage()
+    elif len(sys.argv) == 2 and sys.argv[1] == "-i":
+        interactive()
+    elif len(sys.argv) == 2:
+        try:
+            setCPUs(parseRange(sys.argv[1]))
+        except ValueError as e:
+            print >> sys.stderr, e
+            print >> sys.stderr
+            usage()
+    else:
+        usage()
+

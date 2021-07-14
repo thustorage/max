@@ -1,0 +1,439 @@
+$Cambridge: exim/exim-doc/doc-txt/NewStuff,v 1.161 2009/11/16 19:06:35 nm4 Exp $
+
+New Features in Exim
+--------------------
+
+This file contains descriptions of new features that have been added to Exim.
+Before a formal release, there may be quite a lot of detail so that people can
+test from the snapshots or the CVS before the documentation is updated. Once
+the documentation is updated, this file is reduced to a short list.
+
+
+Version 4.70 / 4.71
+-------------------
+
+ 1. Native DKIM support without an external library.
+
+ 2. Experimental DCC support via dccifd (contributed by Wolfgang Breyha).
+
+ 3. There is now a bool{} expansion condition which maps certain strings to
+    true/false condition values (most likely of use in conjuction with the
+    and{} expansion operator).
+
+ 4. The $spam_score, $spam_bar and $spam_report variables are now available
+    at delivery time.
+
+ 5. exim -bP now supports "macros", "macro_list" or "macro MACRO_NAME" as
+    options, provided that Exim is invoked by an admin_user.
+
+ 6. There is a new option gnutls_compat_mode, when linked against GnuTLS,
+    which increases compatibility with older clients at the cost of decreased
+    security.  Don't set this unless you need to support such clients.
+
+ 7. There is a new expansion operator, ${randint:...} which will produce a
+    "random" number less than the supplied integer.  This randomness is
+    not guaranteed to be cryptographically strong, but depending upon how
+    Exim was built may be better than the most naive schemes.
+
+ 8. Exim now explicitly ensures that SHA256 is available when linked against
+    OpenSSL.
+
+ 9. The transport_filter_timeout option now applies to SMTP transports too.
+
+
+Version 4.68
+------------
+
+ 1. The body_linecount and body_zerocount C variables are now exported in the
+    local_scan API.
+
+ 2. When a dnslists lookup succeeds, the key that was looked up is now placed
+    in $dnslist_matched. When the key is an IP address, it is not reversed in
+    this variable (though it is, of course, in the actual lookup). In simple
+    cases, for example:
+
+      deny dnslists = spamhaus.example
+
+    the key is also available in another variable (in this case,
+    $sender_host_address). In more complicated cases, however, this is not
+    true. For example, using a data lookup might generate a dnslists lookup
+    like this:
+
+      deny dnslists = spamhaus.example/<|192.168.1.2|192.168.6.7|...
+
+    If this condition succeeds, the value in $dnslist_matched might be
+    192.168.6.7 (for example).
+
+ 3. Authenticators now have a client_condition option. When Exim is running as
+    a client, it skips an authenticator whose client_condition expansion yields
+    "0", "no", or "false". This can be used, for example, to skip plain text
+    authenticators when the connection is not encrypted by a setting such as:
+
+      client_condition = ${if !eq{$tls_cipher}{}}
+
+    Note that the 4.67 documentation states that $tls_cipher contains the
+    cipher used for incoming messages. In fact, during SMTP delivery, it
+    contains the cipher used for the delivery. The same is true for
+    $tls_peerdn.
+
+ 4. There is now a -Mvc <message-id> option, which outputs a copy of the
+    message to the standard output, in RFC 2822 format. The option can be used
+    only by an admin user.
+
+ 5. There is now a /noupdate option for the ratelimit ACL condition. It
+    computes the rate and checks the limit as normal, but it does not update
+    the saved data. This means that, in relevant ACLs, it is possible to lookup
+    the existence of a specified (or auto-generated) ratelimit key without
+    incrementing the ratelimit counter for that key.
+
+    In order for this to be useful, another ACL entry must set the rate
+    for the same key somewhere (otherwise it will always be zero).
+
+    Example:
+
+    acl_check_connect:
+      # Read the rate; if it doesn't exist or is below the maximum
+      # we update it below
+      deny ratelimit = 100 / 5m / strict / noupdate
+           log_message = RATE: $sender_rate / $sender_rate_period \
+                         (max $sender_rate_limit)
+
+      [... some other logic and tests...]
+
+      warn ratelimit = 100 / 5m / strict / per_cmd
+           log_message = RATE UPDATE: $sender_rate / $sender_rate_period \
+                         (max $sender_rate_limit)
+           condition = ${if le{$sender_rate}{$sender_rate_limit}}
+
+      accept
+
+ 6. The variable $max_received_linelength contains the number of bytes in the
+    longest line that was received as part of the message, not counting the
+    line termination character(s).
+
+ 7. Host lists can now include +ignore_defer and +include_defer, analagous to
+    +ignore_unknown and +include_unknown. These options should be used with
+    care, probably only in non-critical host lists such as whitelists.
+
+ 8. There's a new option called queue_only_load_latch, which defaults true.
+    If set false when queue_only_load is greater than zero, Exim re-evaluates
+    the load for each incoming message in an SMTP session. Otherwise, once one
+    message is queued, the remainder are also.
+
+ 9. There is a new ACL, specified by acl_smtp_notquit, which is run in most
+    cases when an SMTP session ends without sending QUIT. However, when Exim
+    itself is is bad trouble, such as being unable to write to its log files,
+    this ACL is not run, because it might try to do things (such as write to
+    log files) that make the situation even worse.
+
+    Like the QUIT ACL, this new ACL is provided to make it possible to gather
+    statistics. Whatever it returns (accept or deny) is immaterial. The "delay"
+    modifier is forbidden in this ACL.
+
+    When the NOTQUIT ACL is running, the variable $smtp_notquit_reason is set
+    to a string that indicates the reason for the termination of the SMTP
+    connection. The possible values are:
+
+      acl-drop                 Another ACL issued a "drop" command
+      bad-commands             Too many unknown or non-mail commands
+      command-timeout          Timeout while reading SMTP commands
+      connection-lost          The SMTP connection has been lost
+      data-timeout             Timeout while reading message data
+      local-scan-error         The local_scan() function crashed
+      local-scan-timeout       The local_scan() function timed out
+      signal-exit              SIGTERM or SIGINT
+      synchronization-error    SMTP synchronization error
+      tls-failed               TLS failed to start
+
+    In most cases when an SMTP connection is closed without having received
+    QUIT, Exim sends an SMTP response message before actually closing the
+    connection. With the exception of acl-drop, the default message can be
+    overridden by the "message" modifier in the NOTQUIT ACL. In the case of a
+    "drop" verb in another ACL, it is the message from the other ACL that is
+    used.
+
+10. For MySQL and PostgreSQL lookups, it is now possible to specify a list of
+    servers with individual queries. This is done by starting the query with
+    "servers=x:y:z;", where each item in the list may take one of two forms:
+
+    (1) If it is just a host name, the appropriate global option (mysql_servers
+        or pgsql_servers) is searched for a host of the same name, and the
+        remaining parameters (database, user, password) are taken from there.
+
+    (2) If it contains any slashes, it is taken as a complete parameter set.
+
+    The list of servers is used in exactly the same was as the global list.
+    Once a connection to a server has happened and a query has been
+    successfully executed, processing of the lookup ceases.
+
+    This feature is intended for use in master/slave situations where updates
+    are occurring, and one wants to update a master rather than a slave. If the
+    masters are in the list for reading, you might have:
+
+      mysql_servers = slave1/db/name/pw:slave2/db/name/pw:master/db/name/pw
+
+    In an updating lookup, you could then write
+
+      ${lookup mysql{servers=master; UPDATE ...}
+
+    If, on the other hand, the master is not to be used for reading lookups:
+
+      pgsql_servers = slave1/db/name/pw:slave2/db/name/pw
+
+    you can still update the master by
+
+      ${lookup pgsql{servers=master/db/name/pw; UPDATE ...}
+
+11. The message_body_newlines option (default FALSE, for backwards
+    compatibility) can be used to control whether newlines are present in
+    $message_body and $message_body_end. If it is FALSE, they are replaced by
+    spaces.
+
+
+Version 4.67
+------------
+
+ 1. There is a new log selector called smtp_no_mail, which is not included in
+    the default setting. When it is set, a line is written to the main log
+    whenever an accepted SMTP connection terminates without having issued a
+    MAIL command.
+
+ 2. When an item in a dnslists list is followed by = and & and a list of IP
+    addresses, the behaviour was not clear when the lookup returned more than
+    one IP address. This has been solved by the addition of == and =& for "all"
+    rather than the default "any" matching.
+
+ 3. Up till now, the only control over which cipher suites GnuTLS uses has been
+    for the cipher algorithms. New options have been added to allow some of the
+    other parameters to be varied.
+
+ 4. There is a new compile-time option called ENABLE_DISABLE_FSYNC. When it is
+    set, Exim compiles a runtime option called disable_fsync.
+
+ 5. There is a new variable called $smtp_count_at_connection_start.
+
+ 6. There's a new control called no_pipelining.
+
+ 7. There are two new variables called $sending_ip_address and $sending_port.
+    These are set whenever an SMTP connection to another host has been set up.
+
+ 8. The expansion of the helo_data option in the smtp transport now happens
+    after the connection to the server has been made.
+
+ 9. There is a new expansion operator ${rfc2047d: that decodes strings that
+    are encoded as per RFC 2047.
+
+10. There is a new log selector called "pid", which causes the current process
+    id to be added to every log line, in square brackets, immediately after the
+    time and date.
+
+11. Exim has been modified so that it flushes SMTP output before implementing
+    a delay in an ACL. It also flushes the output before performing a callout,
+    as this can take a substantial time. These behaviours can be disabled by
+    obeying control = no_delay_flush or control = no_callout_flush,
+    respectively, at some earlier stage of the connection.
+
+12. There are two new expansion conditions that iterate over a list. They are
+    called forany and forall.
+
+13. There's a new global option called dsn_from that can be used to vary the
+    contents of From: lines in bounces and other automatically generated
+    messages ("delivery status notifications" - hence the name of the option).
+
+14. The smtp transport has a new option called hosts_avoid_pipelining.
+
+15. By default, exigrep does case-insensitive matches. There is now a -I option
+    that makes it case-sensitive.
+
+16. A number of new features ("addresses", "map", "filter", and "reduce") have
+    been added to string expansions to make it easier to process lists of
+    items, typically addresses.
+
+17. There's a new ACL modifier called "continue". It does nothing of itself,
+    and processing of the ACL always continues with the next condition or
+    modifier. It is provided so that the side effects of expanding its argument
+    can be used.
+
+18. It is now possible to use newline and other control characters (those with
+    values less than 32, plus DEL) as separators in lists.
+
+19. The exigrep utility now has a -v option, which inverts the matching
+    condition.
+
+20. The host_find_failed option in the manualroute router can now be set to
+    "ignore".
+
+
+Version 4.66
+------------
+
+No new features were added to 4.66.
+
+
+Version 4.65
+------------
+
+No new features were added to 4.65.
+
+
+Version 4.64
+------------
+
+ 1. ACL variables can now be given arbitrary names, as long as they start with
+    "acl_c" or "acl_m" (for connection variables and message variables), are at
+    least six characters long, with the sixth character being either a digit or
+    an underscore.
+
+ 2. There is a new ACL modifier called log_reject_target. It makes it possible
+    to specify which logs are used for messages about ACL rejections.
+
+ 3. There is a new authenticator called "dovecot". This is an interface to the
+    authentication facility of the Dovecot POP/IMAP server, which can support a
+    number of authentication methods.
+
+ 4. The variable $message_headers_raw provides a concatenation of all the
+    messages's headers without any decoding. This is in contrast to
+    $message_headers, which does RFC2047 decoding on the header contents.
+
+ 5. In a DNS black list, if two domain names, comma-separated, are given, the
+    second is used first to do an initial check, making use of any IP value
+    restrictions that are set. If there is a match, the first domain is used,
+    without any IP value restrictions, to get the TXT record.
+
+ 6. All authenticators now have a server_condition option.
+
+ 7. There is a new command-line option called -Mset. It is useful only in
+    conjunction with -be (that is, when testing string expansions). It must be
+    followed by a message id; Exim loads the given message from its spool
+    before doing the expansions.
+
+ 8. Another similar new command-line option is called -bem. It operates like
+    -be except that it must be followed by the name of a file that contains a
+    message.
+
+ 9. When an address is delayed because of a 4xx response to a RCPT command, it
+    is now the combination of sender and recipient that is delayed in
+    subsequent queue runs until its retry time is reached.
+
+10. Unary negation and the bitwise logical operators and, or, xor, not, and
+    shift, have been added to the eval: and eval10: expansion items.
+
+11. The variables $interface_address and $interface_port have been renamed
+    as $received_ip_address and $received_port, to make it clear that they
+    relate to message reception rather than delivery. (The old names remain
+    available for compatibility.)
+
+12. The "message" modifier can now be used on "accept" and "discard" acl verbs
+    to vary the message that is sent when an SMTP command is accepted.
+
+
+Version 4.63
+------------
+
+1. There is a new Boolean option called filter_prepend_home for the redirect
+   router.
+
+2. There is a new acl, set by acl_not_smtp_start, which is run right at the
+   start of receiving a non-SMTP message, before any of the message has been
+   read.
+
+3. When an SMTP error message is specified in a "message" modifier in an ACL,
+   or in a :fail: or :defer: message in a redirect router, Exim now checks the
+   start of the message for an SMTP error code.
+
+4. There is a new parameter for LDAP lookups called "referrals", which takes
+   one of the settings "follow" (the default) or "nofollow".
+
+5. Version 20070721.2 of exipick now included, offering these new options:
+    --reverse
+        After all other sorting options have bee processed, reverse order
+        before displaying messages (-R is synonym).
+    --random
+        Randomize order of matching messages before displaying.
+    --size
+        Instead of displaying the matching messages, display the sum
+        of their sizes.
+    --sort <variable>[,<variable>...]
+        Before displaying matching messages, sort the messages according to
+        each messages value for each variable.
+    --not
+        Negate the value for every test (returns inverse output from the
+        same criteria without --not).
+
+
+Version 4.62
+------------
+
+1. The ${readsocket expansion item now supports Internet domain sockets as well
+   as Unix domain sockets. If the first argument begins "inet:", it must be of
+   the form "inet:host:port". The port is mandatory; it may be a number or the
+   name of a TCP port in /etc/services. The host may be a name, or it may be an
+   IP address. An ip address may optionally be enclosed in square brackets.
+   This is best for IPv6 addresses. For example:
+
+     ${readsocket{inet:[::1]:1234}{<request data>}...
+
+   Only a single host name may be given, but if looking it up yield more than
+   one IP address, they are each tried in turn until a connection is made. Once
+   a connection has been made, the behaviour is as for ${readsocket with a Unix
+   domain socket.
+
+2. If a redirect router sets up file or pipe deliveries for more than one
+   incoming address, and the relevant transport has batch_max set greater than
+   one, a batch delivery now occurs.
+
+3. The appendfile transport has a new option called maildirfolder_create_regex.
+   Its value is a regular expression. For a maildir delivery, this is matched
+   against the maildir directory; if it matches, Exim ensures that a
+   maildirfolder file is created alongside the new, cur, and tmp directories.
+
+
+Version 4.61
+------------
+
+The documentation is up-to-date for the 4.61 release. Major new features since
+the 4.60 release are:
+
+. An option called disable_ipv6, to disable the use of IPv6 completely.
+
+. An increase in the number of ACL variables to 20 of each type.
+
+. A change to use $auth1, $auth2, and $auth3 in authenticators instead of $1,
+  $2, $3, (though those are still set) because the numeric variables get used
+  for other things in complicated expansions.
+
+. The default for rfc1413_query_timeout has been changed from 30s to 5s.
+
+. It is possible to use setclassresources() on some BSD OS to control the
+  resources used in pipe deliveries.
+
+. A new ACL modifier called add_header, which can be used with any verb.
+
+. More errors are detectable in retry rules.
+
+There are a number of other additions too.
+
+
+Version 4.60
+------------
+
+The documentation is up-to-date for the 4.60 release. Major new features since
+the 4.50 release are:
+
+. Support for SQLite.
+
+. Support for IGNOREQUOTA in LMTP.
+
+. Extensions to the "submission mode" features.
+
+. Support for Client SMTP Authorization (CSA).
+
+. Support for ratelimiting hosts and users.
+
+. New expansion items to help with the BATV "prvs" scheme.
+
+. A "match_ip" condition, that matches an IP address against a list.
+
+There are many more minor changes.
+
+****

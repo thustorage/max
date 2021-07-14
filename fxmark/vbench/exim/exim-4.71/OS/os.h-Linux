@@ -1,0 +1,55 @@
+/* $Cambridge: exim/exim-src/OS/os.h-Linux,v 1.8 2009/06/10 07:34:04 tom Exp $ */
+
+/* Exim: OS-specific C header file for Linux */
+
+#define CRYPT_H
+#define GLIBC_IP_OPTIONS
+#define HAVE_MMAP
+#define HAVE_BSD_GETLOADAVG
+#define HAVE_SYS_STATVFS_H
+#define NO_IP_VAR_H
+#define SIG_IGN_WORKS
+
+/* When using the DKIM, setting HAVE_LINUX_SENDFILE can increase
+performance on outgoing mail a bit. Note: With older glibc versions
+this setting will conflict with the _FILE_OFFSET_BITS=64 setting
+defined as part of the Linux CFLAGS. */
+
+/* #define HAVE_LINUX_SENDFILE */
+
+#define F_FREESP     O_TRUNC
+typedef struct flock flock_t;
+
+#define os_strsignal strsignal
+#define OS_STRSIGNAL
+
+#if defined(__linux__) || defined(__FreeBSD_kernel__) || defined(__NetBSD_kernel__)
+#define SIOCGIFCONF_GIVES_ADDR
+#define HAVE_SYS_MOUNT_H
+#endif
+
+#if defined(__linux__)
+
+/* Some versions of Linux need explicit sync-ing of directories as well as
+files. This setting requests that. If the directory is on NFS, it may not
+be possible to sync it - in that case, Exim now should ignore the error. But
+if you have problems in that area, try undefining this. But be aware that you
+may be in a situation where files are not being properly "committed to stable
+storage" as quickly as Exim thinks they are. */
+
+#define NEED_SYNC_DIRECTORY
+
+/* Other OS have "const" in here */
+#define ICONV_ARG2_TYPE char **
+
+#define os_find_running_interfaces os_find_running_interfaces_linux
+
+/* Need a prototype for the Linux-specific function. The structure hasn't
+been defined yet, so we need to pre-declare it. */
+
+struct ip_address_item;
+extern struct ip_address_item *os_find_running_interfaces_linux(void);
+
+#endif /* __linux__ */
+
+/* End */

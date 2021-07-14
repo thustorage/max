@@ -1,0 +1,20 @@
+define fileset name=bigfileset_@SUFFIX@,path=$dir,size=$filesize,entries=$nfiles,dirwidth=$meandirwidth,prealloc=80
+
+define process name=filereader@SUFFIX@,instances=@PROCESS@
+{
+  thread name=filereaderthread,memsize=10m,instances=@THREADS@
+  {
+    flowop createfile name=createfile1_@SUFFIX@,filesetname=bigfileset_@SUFFIX@,fd=1
+    flowop writewholefile name=wrtfile1_@SUFFIX@,srcfd=1,fd=1,iosize=$iosize
+    flowop closefile name=closefile1_@SUFFIX@,fd=1
+    flowop openfile name=openfile1_@SUFFIX@,filesetname=bigfileset_@SUFFIX@,fd=1
+    flowop appendfilerand name=appendfilerand1_@SUFFIX@,iosize=$meanappendsize,fd=1
+    flowop closefile name=closefile2_@SUFFIX@,fd=1
+    flowop openfile name=openfile2_@SUFFIX@,filesetname=bigfileset_@SUFFIX@,fd=1
+    flowop readwholefile name=readfile1_@SUFFIX@,fd=1,iosize=$iosize
+    flowop closefile name=closefile3_@SUFFIX@,fd=1
+    flowop deletefile name=deletefile1_@SUFFIX@,filesetname=bigfileset_@SUFFIX@
+    flowop statfile name=statfile1_@SUFFIX@,filesetname=bigfileset_@SUFFIX@
+  }
+}
+

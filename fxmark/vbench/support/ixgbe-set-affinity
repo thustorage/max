@@ -1,0 +1,119 @@
+#!/usr/bin/python
+
+import glob, os, sys
+
+def usage():
+    import textwrap
+    print >> sys.stderr, "Usage: %s iface [expr]" % sys.argv[0]
+    print >> sys.stderr
+    help = ("iface is the name of the interface to assign queues for.")
+    print >> sys.stderr, textwrap.fill(help)
+    print >> sys.stderr
+    help = ("expr is a Python expression that evaluates to the CPU number or"
+            " list of CPU numbers to assign a given queue to.  It can depend"
+            " on n, the number of the queue; rx and tx, booleans indicating"
+            " whether the queue is receive or transmit; NCPU, NRX, and NTX,"
+            " the number of CPUs receive queues, and transmit queues; and"
+            " CPUS, the list of CPUs.")
+    print >> sys.stderr, textwrap.fill(help)
+    print >> sys.stderr
+    print >> sys.stderr, "If expr is omitted, print the current queue assignment."
+    print >> sys.stderr
+    print >> sys.stderr, "Examples:"
+    print >> sys.stderr, "  n%NCPU              Assign queues round-robin"
+    print >> sys.stderr, "  n if rx else n+NRX  Assign rx and tx queues to different CPUs"
+    print >> sys.stderr, "  CPUS                Assign all queues to all CPUs"
+    sys.exit(2)
+
+def parseQueueName(q):
+    parts = os.path.basename(q).split("-")
+    if (len(parts) != 3 or
+        parts[1].lower() not in ["tx", "rx", "txrx"] or
+        not parts[2].isdigit()):
+        print >> sys.stderr, "Failed to parse queue name %s" % q
+        sys.exit(1)
+    isRx = "rx" in parts[1].lower()
+    isTx = "tx" in parts[1].lower()
+    n = int(parts[2])
+    return n, isRx, isTx
+
+def prettyAffinity(aff):
+    aff = int(aff.replace(",", ""), 16)
+    cpus = []
+    n = 0
+    while aff != 0:
+        if aff & 1:
+            cpus.append(n)
+        n += 1
+        aff >>= 1
+    if len(cpus) == 0:
+        return "NO CPUs"
+    elif len(cpus) == 1:
+        return "CPU %2d" % cpus[0]
+    else:
+        return "CPUs %s" % ",".join(map(str, cpus))
+
+def showQueues(qs):
+    for q in qs:
+        aff = file(q + "/../smp_affinity", "r").read().strip()
+        print "%-12s => %s (mask %s)" % (os.path.basename(q), prettyAffinity(aff), aff)
+
+def listToAffinity(cpus):
+    # Build numeric mask
+    nmask = 0
+    for c in cpus:
+        nmask |= 1 << c
+    # The string affinity is in hex, in groups of 32 bits.
+    smask = ("%x" % nmask)[::-1]
+    return ",".join(smask[i:i+8] for i in range(0, len(smask), 8))[::-1]
+
+def assignQueues(qs, cpuexpr):
+    # Parse queues
+    pqs = map(parseQueueName, qs)
+    nrx = len([None for (n, isRx, isTx) in pqs if isRx])
+    ntx = len([None for (n, isRx, isTx) in pqs if isTx])
+
+    # Compute assignment of queues to CPU's
+    assign = []
+    for q, (n, isRx, isTx) in zip(qs, pqs):
+        ls = {"n" : n, "rx" : isRx, "tx" : isTx,
+              "CPUS" : CPUS, "NCPU" : NCPU,
+              "NRX" : nrx, "NTX" : ntx}
+        cpus = eval(cpuexpr, __builtins__.__dict__, ls)
+        if isinstance(cpus, int):
+            cpus = [cpus]
+        elif not isinstance(cpus, list):
+            print >> sys.stderr, "Expression did not evaluate to an int or list"
+            sys.exit(1)
+        if set(cpus) - set(CPUS):
+            print >> sys.stderr, "Cannot assign %s to non-existent CPU %d" % \
+                (os.path.basename(q), (set(cpus) - set(CPUS)).pop())
+            sys.exit(1)
+        assign.append((q, cpus))
+
+    # Assign queues
+    for q, cpus in assign:
+        file(q + "/../smp_affinity", "w").write(listToAffinity(cpus))
+
+    showQueues(qs)
+
+if (len(sys.argv) == 1 or len(sys.argv) > 3 or
+    (len(sys.argv) >= 2 and sys.argv[1] == "-h")):
+    usage()
+iface = sys.argv[1]
+if len(sys.argv) == 3:
+    cpuexpr = compile(sys.argv[2], "<command-line>", "eval")
+else:
+    cpuexpr = None
+
+# Get CPU's and queues
+CPUS = [int(l.split(":")[1])
+        for l in file("/proc/cpuinfo").readlines()
+        if l.startswith("processor")]
+NCPU = max(CPUS) + 1
+qs = sorted(glob.glob("/proc/irq/*/%s-*" % iface))
+
+if cpuexpr == None:
+    showQueues(qs)
+else:
+    assignQueues(qs, cpuexpr)

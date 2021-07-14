@@ -1,0 +1,37 @@
+diff -ru db-4.7.25.NC.orig/os/os_cpu.c db-4.7.25.NC/os/os_cpu.c
+--- db-4.7.25.NC.orig/os/os_cpu.c	2010-08-27 16:06:22.000000000 -0400
++++ db-4.7.25.NC/os/os_cpu.c	2010-08-28 17:36:51.000000000 -0400
+@@ -16,6 +16,16 @@
+ #endif
+ #endif
+ 
++#if defined(MOSBENCH_CACHE_NPROC)
++static int nproc;
++
++__attribute__((__constructor__))
++static void __os_cpu_count_init(void)
++{
++	nproc = sysconf(_SC_NPROCESSORS_ONLN);
++}
++#endif
++
+ /*
+  * __os_cpu_count --
+  *	Return the number of CPUs.
+@@ -37,10 +47,16 @@
+ 	/*
+ 	 * Solaris, Linux.
+ 	 */
++#if !defined(MOSBENCH_CACHE_NPROC)
+ 	long nproc;
+ 
+ 	nproc = sysconf(_SC_NPROCESSORS_ONLN);
++#endif
++#if defined(MOSBENCH_FORCE_MULTICORE)
++	return ((u_int32_t)(nproc > 2 ? nproc : 2));
++#else
+ 	return ((u_int32_t)(nproc > 1 ? nproc : 1));
++#endif
+ #else
+ 	return (1);
+ #endif

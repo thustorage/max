@@ -1,0 +1,11 @@
+./db_bench --benchmarks "overwrite" --duration 30 \
+--db /tmp \
+--disable_wal true \
+--disable_data_sync true \
+--compression_type "none" --compression_level 0 \
+--threads 2 --readwritepercent 5 \
+--max_background_compactions 18 \
+--max_background_flushes 18 \
+--subcompactions 18 \
+--target_file_size_base 33554432 \
+--value_size 8192

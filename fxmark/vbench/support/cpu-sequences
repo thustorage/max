@@ -1,0 +1,100 @@
+#!/usr/bin/python
+
+import errno
+import sys
+import os
+
+cpuinfo = [dict(map(str.strip, line.split(":", 1))
+                for line in block.splitlines())
+           for block in file("/proc/cpuinfo", "r").read().split("\n\n")
+           if len(block.strip())]
+
+# Keep only primary hyperthreads
+primaries = set()
+for cpu in cpuinfo:
+    processor = cpu["processor"]
+    try:
+        s = file("/sys/devices/system/cpu/cpu%s/topology/thread_siblings_list" % processor).read()
+    except EnvironmentError, e:
+        if e.errno == errno.ENOENT:
+            primaries.add(processor)
+            continue
+        raise
+    ss = set(map(int, s.split(",")))
+    if int(processor) == min(ss):
+        primaries.add(processor)
+cpuinfo = [cpu for cpu in cpuinfo if cpu["processor"] in primaries]
+
+def seq(cpuinfo):
+    packages = {}
+    package_ids = set()
+    for cpu in cpuinfo:
+        if "physical id" in cpu:
+            package_id = int(cpu["physical id"])
+            packages.setdefault(package_id, []).append(cpu)
+            if cpu["processor"] is "0":
+                cpu0_package_id = int(package_id)
+            package_ids.add(int(package_id))
+        else:
+            yield cpu
+    for cpu in packages[cpu0_package_id]:
+        yield cpu
+    package_ids.remove(cpu0_package_id)
+
+    for package_id in package_ids:
+        for cpu in packages[package_id]:
+            yield cpu
+
+def rr(cpuinfo):
+    while len(cpuinfo):
+        phys = set()
+        next = []
+        for cpu in cpuinfo:
+            if "physical id" in cpu:
+                if cpu["physical id"] not in phys:
+                    phys.add(cpu["physical id"])
+                    yield cpu
+                else:
+                    next.append(cpu)
+            else:
+                yield cpu
+
+        cpuinfo = next
+
+def onlinecpu():
+    import numa
+
+    for node in range(0,numa.get_max_node()+1):
+        for cpu in sorted(numa.node_to_cpus(node)):
+            yield str(cpu)
+
+def plseqorder():
+    import numa
+
+    onlineCPUs = onlinecpu()
+    cpus = [cpu for cpu in onlineCPUs]
+    for cpu in seq(cpuinfo):
+        cpus.remove(cpu["processor"])
+        yield cpu["processor"]
+    for cpu in cpus:
+        yield str(cpu)
+
+def pinProc(pid, core):
+    import psutil
+
+    try:
+	psutil.Process(int(pid)).cpu_affinity([int(core)])
+    except ValueError as e:
+	    print >> sys.stderr, e
+	    sys.exit(1)
+
+if __name__ == "__main__":
+    if len(sys.argv) == 3:
+	    pinProc(int(sys.argv[1]), int(sys.argv[2]))
+    else:
+	    #print "seq %s" % ",".join(cpu["processor"] for cpu in seq(cpuinfo))
+	    #print "rr %s" % ",".join(cpu["processor"] for cpu in rr(cpuinfo))
+	    # for logical ones too!
+	    print "seq %s" % ",".join(plseqorder())
+	    print "rr %s" % ",".join(plseqorder())
+	    print "onlinecpu %s" % ",".join(onlinecpu())

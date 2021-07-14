@@ -1,0 +1,11 @@
+#!/bin/sh
+if [ $# != 4 ]; then
+    echo "Usage: $0 suffix processes threads template" >&2
+    exit 2
+fi
+
+BASE=$(cd `dirname $0`; pwd)
+for ((i=1; i<=$1; i++))
+do
+sed -e "s,@SUFFIX@,$i,g;s,@PROCESS@,$2,g;s,@THREADS@,$3,g" < $BASE/$4
+done

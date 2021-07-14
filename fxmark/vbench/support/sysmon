@@ -1,0 +1,125 @@
+#!/usr/bin/python
+
+import sys, os, time, subprocess, operator, re
+
+SC_CLK_TCK = float(os.sysconf("SC_CLK_TCK"))
+# Get the X in 2.6.X-blah-blah
+LINUX_VERSION = int(re.sub('[^0-9]', '', os.uname()[2].split('.')[2]))
+
+def usage():
+    print >> sys.stderr, "Usage: %s [-s start] [-e end] [cmd...]" % sys.argv[0]
+    print >> sys.stderr
+    print >> sys.stderr, """\
+Monitor the system while running the given command.  If no command is
+given, monitor until EOF on stdin.
+
+  -s start  Start monitoring when the command prints 'start'
+  -e end    Stop monitoring when the command prints 'end'"""
+    sys.exit(2)
+
+def vsub(a, b):
+    return map(operator.sub, a, b)
+
+def vadd(a, b):
+    return map(operator.add, a, b)
+
+class TimeMonitor(object):
+    COLS = ["real", "user", "nice", "sys", "idle",
+            "iowait", "irq", "softirq",
+            "steal"]
+    if LINUX_VERSION >= 24:
+        COLS.append("guest");
+
+    def __init__(self):
+        self.__f = file("/proc/stat", "r", 0)
+        self.__start = None
+        self.__completed = False
+        self.__cumm = [0] * len(self.COLS)
+
+    def sample(self):
+        self.__f.seek(0)
+        for l in self.__f:
+            if not l.startswith("cpu "):
+                continue
+            return ([time.time()] +
+                    [int(p)/SC_CLK_TCK for p in l[4:].strip().split()])
+        raise RuntimeError("Failed to find CPU statistics")
+
+    def start(self):
+        if self.__start:
+            raise RuntimeError("Already started")
+        self.__start = self.sample()
+
+    def stop(self):
+        if not self.__start:
+            return
+        delta = vsub(self.sample(), self.__start)
+        if len(delta) > len(self.COLS):
+            delta = delta[:len(self.COLS)]
+        # The kernel's total idle reporting is bogus (in 2.6.37 at
+        # least); compute our own idle time
+        self.__f.seek(0)
+        ncpus = len([l for l in self.__f.readlines()
+                     if l.startswith("cpu")]) - 1
+        delta[4] = ncpus * delta[0] - (delta[1] + delta[3])
+        self.__cumm = vadd(self.__cumm, delta)
+        self.__start = None
+        self.__completed = True
+
+    def result(self):
+        if not self.__completed:
+            return None
+        out = []
+        for c, d in zip(self.COLS, self.__cumm):
+            out.extend([c, "%g" % d])
+        return " ".join(out)
+
+args = sys.argv[1:]
+start = end = proc = None
+while args and args[0].startswith("-"):
+    arg = args.pop(0)
+    if arg == "-s" and args:
+        start = args.pop(0)
+    elif arg == "-e" and args:
+        end = args.pop(0)
+    else:
+        usage()
+triggers = [start, end]
+
+if len(args) == 0:
+    f = sys.stdin
+else:
+    # XXX Use a PTY to avoid flushing issues?
+    proc = subprocess.Popen(args, stdout = subprocess.PIPE)
+    f = proc.stdout
+
+m = TimeMonitor()
+if start == None:
+    m.start()
+while True:
+    l = f.readline()
+    if not l:
+        break
+    sys.stdout.write(l)
+    if start != None and l.rstrip("\n") == start:
+        m.start()
+        triggers[0] = None
+    elif end != None and l.rstrip("\n") == end:
+        m.stop()
+        triggers[1] = None
+    sys.stdout.flush()
+if end == None:
+    m.stop()
+
+res = m.result()
+if res != None:
+    print "[TimeMonitor]", res
+if proc:
+    ret = proc.wait()
+    if ret == 0 and res == None:
+        print >> sys.stderr, "Monitor trigger line %r never read" % \
+            (triggers[0] or triggers[1])
+    if ret >= 0:
+        sys.exit(ret)
+    else:
+        os.kill(os.getpid(), -ret)

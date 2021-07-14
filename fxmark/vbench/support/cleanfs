@@ -1,0 +1,99 @@
+#!/bin/bash
+
+set -e
+
+BASE=/tmp/mosbench
+
+if [ $# != 1 ]; then
+    cat >&2 <<EOF
+Usage: $0 fstype
+
+Remove files in the MOSBENCH mount for the given file system type (as
+created by mkmounts).
+EOF
+    exit 2
+fi
+
+del_folder () {
+	if [ -d $1 ]
+	then
+		cd $1
+		perl -e 'for(<*>){((stat)[9]<(unlink))}'
+		cd - >/dev/null
+	fi
+}
+
+
+case $1 in
+    tmpfs|tmpfs-separate)
+        #rm -rf $BASE/$1/[0-9]*/*
+	for i in `ls $BASE/$1/ | grep -E '[0-9]'`
+	do
+	    del_folder $BASE/$1/$i
+	done
+        if [ -e $BASE/$1/spool/log ]; then
+            rm -rf $BASE/$1/spool/log/*
+        fi
+		if [ -e $BASE/$1/spool1/log ]; then
+            rm -rf $BASE/$1/spool1/log/*
+        fi
+	for i in `seq 0 9`
+	do
+		del_folder $BASE/$1/spool/input/$i
+		del_folder $BASE/$1/spool1/input/$i
+	done
+	for i in `echo {a..z}`
+	do
+		del_folder $BASE/$1/spool/input/$i
+		del_folder $BASE/$1/spool1/input/$i
+	done
+	for i in `echo {A..Z}`
+	do
+		del_folder $BASE/$1/spool/input/$i
+		del_folder $BASE/$1/spool1/input/$i
+	done
+	rm -rf $BASE/$1/spool/input/[0-9]*/*
+	rm -rf $BASE/$1/spool/input/[a-z]*/*
+	rm -rf $BASE/$1/spool/input/[A-Z]*/*
+	rm -rf $BASE/$1/spool1/input/[0-9]*/*
+	rm -rf $BASE/$1/spool1/input/[a-z]*/*
+	rm -rf $BASE/$1/spool1/input/[A-Z]*/*
+        ;;
+    hugetlb)
+        for f in $BASE/$1/pagefile*; do
+            # hugetlbfs WON'T FREE the huge pages backing these files
+            # if we simply delete them.  We have to first truncate
+            # them, which will free the pages.
+            truncate --size=0 $f
+            rm $f
+        done
+        ;;
+    ext2|ext3|ext4|btrfs|f2fs|xfs|jfs|reiserfs|ext4_no_jnl)
+	for i in `ls $BASE/$1/ | grep -E '[0-9]'`
+	do
+	    del_folder $BASE/$1/$i
+	done
+	if [ -e $BASE/$1/spool/log ]; then
+            rm -rf $BASE/$1/spool/log/*
+        fi
+	for i in `seq 0 9`
+	do
+		del_folder $BASE/$1/spool/input/$i
+	done
+	for i in `echo {a..z}`
+	do
+		del_folder $BASE/$1/spool/input/$i
+	done
+	for i in `echo {A..Z}`
+	do
+		del_folder $BASE/$1/spool/input/$i
+	done
+	rm -rf $BASE/$1/spool/input/[0-9]*/*
+	rm -rf $BASE/$1/spool/input/[a-z]*/*
+	rm -rf $BASE/$1/spool/input/[A-Z]*/*
+	;;
+    *)
+        echo "Unknown file system type $1" &>2
+        exit 1
+        ;;
+esac

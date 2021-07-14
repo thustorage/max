@@ -1,0 +1,16 @@
+$Cambridge: exim/exim-src/src/pcre/README,v 1.2 2008/01/16 13:44:45 nm4 Exp $
+
+PCRE for use in Exim
+--------------------
+
+This directory used to contain a subset of the files from the PCRE distribution.
+
+However carrying our own subset of PCRE, especially when the vast
+majority of systems now have PCRE as a system library, has become a
+liability, requiring exim to be manually updated whenever changes are
+made in PCRE.
+
+PCRE can be found at http://www.pcre.org/
+
+Nigel Metheringham
+January 2008
