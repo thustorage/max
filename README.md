@@ -21,7 +21,7 @@ month = jul,
 
 WARNING: The code can be only used for academic research. Please do not use it for production.
 
-Contact information: liao-xj17@mails.tsinghua.edu.cn
+Contact information: liaoxiaojian@tsinghua.edu.cn
 
 ## Downloading the source code
 ```bash
